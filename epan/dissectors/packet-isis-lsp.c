@@ -136,9 +136,11 @@
 #define FLEX_ALGO_METRIC_TYPE_MIN_UNID_LINK_DELAY 1
 #define FLEX_ALGO_METRIC_TYPE_TE_DEFAULT_METRIC   2
 
-/* Flex-Algo Calc-Type */
-#define FLEX_ALGO_CALC_TYPE_SPF     0
-#define FLEX_ALGO_CALC_TYPE_SSPF    1
+/* Sub-TLVs of ISIS FAD Sub-TLV */
+#define FAD_EXCLUDE_AG              1
+#define FAD_INCLUDE_ANY_AG          2
+#define FAD_INCLUDE_ALL_AG          3
+#define FAD_FLAGS                   4
 
 /* Prefix Attribute Flags Sub-TLV (rfc7794)*/
 #define ISIS_LSP_PFX_ATTR_FLAG_X    0x80
@@ -325,6 +327,8 @@ static int hf_isis_lsp_prefix_attr_flags = -1;
 static int hf_isis_lsp_prefix_attr_flags_x = -1;
 static int hf_isis_lsp_prefix_attr_flags_r = -1;
 static int hf_isis_lsp_prefix_attr_flags_n = -1;
+static int hf_isis_lsp_ext_ip_reachability_flex_algo_prefix_metric_flexalgo = -1;
+static int hf_isis_lsp_ext_ip_reachability_flex_algo_prefix_metric_metric = -1;
 static int hf_isis_lsp_rt_capable_trees_maximum_nof_trees_to_compute = -1;
 static int hf_isis_lsp_rt_capable_interested_vlans_vlan_start_id = -1;
 static int hf_isis_lsp_rt_capable_nickname_nickname_priority = -1;
@@ -415,6 +419,11 @@ static int hf_isis_lsp_clv_flex_algo_num = -1;
 static int hf_isis_lsp_clv_flex_algo_metric_type = -1;
 static int hf_isis_lsp_clv_flex_algo_calc_type = -1;
 static int hf_isis_lsp_clv_flex_algo_priority = -1;
+static int hf_isis_lsp_clv_flex_algo_exc_ag = -1;
+static int hf_isis_lsp_clv_flex_algo_incany_ag = -1;
+static int hf_isis_lsp_clv_flex_algo_incall_ag = -1;
+static int hf_isis_lsp_clv_flex_algo_flags = -1;
+static int hf_isis_lsp_clv_flex_algo_flags_m = -1;
 static int hf_isis_lsp_clv_srv6_endx_sid_system_id = -1;
 static int hf_isis_lsp_clv_srv6_endx_sid_flags = -1;
 static int hf_isis_lsp_clv_srv6_endx_sid_flags_b = -1;
@@ -523,6 +532,10 @@ static gint ett_isis_lsp_clv_node_msd = -1;
 static gint ett_isis_lsp_clv_srv6_cap = -1;
 static gint ett_isis_lsp_clv_srv6_cap_flags = -1;
 static gint ett_isis_lsp_clv_flex_algo_definition = -1;
+static gint ett_isis_lsp_clv_flex_algo_exc_ag = -1;
+static gint ett_isis_lsp_clv_flex_algo_incany_ag = -1;
+static gint ett_isis_lsp_clv_flex_algo_incall_ag = -1;
+static gint ett_isis_lsp_clv_flex_algo_flags = -1;
 static gint ett_isis_lsp_clv_ipv6_te_rtrid = -1;
 static gint ett_isis_lsp_clv_trill_version = -1;
 static gint ett_isis_lsp_clv_trees = -1;
@@ -629,6 +642,11 @@ static const int * srv6_locator_flags[] = {
     NULL,
 };
 
+static const int * flex_algo_flags[] = {
+    &hf_isis_lsp_clv_flex_algo_flags_m,
+    NULL,
+};
+
 static const int * srv6_endx_sid_flags[] = {
     &hf_isis_lsp_clv_srv6_endx_sid_flags_b,
     &hf_isis_lsp_clv_srv6_endx_sid_flags_s,
@@ -676,12 +694,6 @@ static const value_string isis_lsp_flex_algo_metric_type[] = {
     { FLEX_ALGO_METRIC_TYPE_IGP_METRIC,          "IGP Metric" },
     { FLEX_ALGO_METRIC_TYPE_MIN_UNID_LINK_DELAY, "Min Unidirectional Link Delay as defined in [RFC7810]" },
     { FLEX_ALGO_METRIC_TYPE_TE_DEFAULT_METRIC,   "TE default metric as defined in [RFC5305]" },
-    { 0, NULL }
-};
-
-static const value_string isis_lsp_flex_algo_calc_type[] = {
-    { FLEX_ALGO_CALC_TYPE_SPF,      "Shortest Path First (SPF)" },
-    { FLEX_ALGO_CALC_TYPE_SSPF,     "Strict Shortest Path First (SPF)" },
     { 0, NULL }
 };
 
@@ -734,6 +746,7 @@ static const value_string isis_lsp_ext_is_reachability_code_vals[] = {
 #define IP_REACH_SUBTLV_64BIT_ADMIN_TAG 2
 #define IP_REACH_SUBTLV_PFX_SID         3
 #define IP_REACH_SUBTLV_PFX_ATTRIB_FLAG 4
+#define IP_REACH_SUBTLV_PFX_METRIC      6
 #define IP_REACH_SUBTLV_BIER_INFO       32
 
 static const value_string isis_lsp_ext_ip_reachability_code_vals[] = {
@@ -741,6 +754,7 @@ static const value_string isis_lsp_ext_ip_reachability_code_vals[] = {
     { IP_REACH_SUBTLV_64BIT_ADMIN_TAG, "64-bit Administrative Tag" },
     { IP_REACH_SUBTLV_PFX_SID,         "Prefix-SID" },
     { IP_REACH_SUBTLV_PFX_ATTRIB_FLAG, "Prefix Attribute Flags" },
+    { IP_REACH_SUBTLV_PFX_METRIC,      "Flex-Algorithm Prefix Metric" },
     { IP_REACH_SUBTLV_BIER_INFO,       "BIER Info" },
     { 0, NULL }
 };
@@ -1081,6 +1095,13 @@ dissect_ipreach_subclv(tvbuff_t *tvb, packet_info *pinfo,  proto_tree *tree, pro
         } else if (!(flags & 0xC)) {
             proto_tree_add_item(tree, hf_isis_lsp_sid_sli_index, tvb, offset, 4, ENC_BIG_ENDIAN);
         }
+        break;
+    case IP_REACH_SUBTLV_PFX_METRIC:
+        proto_tree_add_item(tree, hf_isis_lsp_ext_ip_reachability_flex_algo_prefix_metric_flexalgo,
+            tvb, offset, 1, ENC_NA);
+        proto_tree_add_item(tree, hf_isis_lsp_ext_ip_reachability_flex_algo_prefix_metric_metric,
+            tvb, offset+1, 4, ENC_NA);
+        offset += 5;
         break;
     case IP_REACH_SUBTLV_PFX_ATTRIB_FLAG:
         /* Prefix Attribute Flags */
@@ -1494,7 +1515,7 @@ dissect_isis_trill_clv(tvbuff_t *tvb, packet_info* pinfo _U_,
         proto_tree *tree, int offset, int subtype, int sublen)
 {
     guint16 rt_block;
-    proto_tree *rt_tree, *cap_tree;
+    proto_tree *rt_tree, *cap_tree, *ag_tree;
     guint16 root_id;
     guint8 tlv_type, tlv_len;
     int i;
@@ -1752,6 +1773,46 @@ dissect_isis_trill_clv(tvbuff_t *tvb, packet_info* pinfo _U_,
         proto_tree_add_item(rt_tree, hf_isis_lsp_clv_flex_algo_priority, tvb, offset+3, 1, ENC_NA);
         sublen -= 4;
         offset += 4;
+        while (sublen >= 2) {
+            int subsubtype = tvb_get_guint8(tvb, offset);
+            int subsublen = tvb_get_guint8(tvb, offset+1);
+            sublen -= 2;
+            offset += 2;
+            switch (subsubtype) {
+            case FAD_EXCLUDE_AG:
+                ag_tree = proto_tree_add_subtree_format(rt_tree, tvb, offset-2, subsublen+2,
+                    ett_isis_lsp_clv_flex_algo_exc_ag, NULL, "Exclude Admin Group Sub-TLV");
+                for (int j = 0; j < subsublen; j += 4) {
+                    proto_tree_add_bits_item(ag_tree, hf_isis_lsp_clv_flex_algo_exc_ag,
+                        tvb, (offset + j * 4) * 8, 32, ENC_BIG_ENDIAN);
+                }
+                break;
+            case FAD_INCLUDE_ANY_AG:
+                ag_tree = proto_tree_add_subtree_format(rt_tree, tvb, offset-2, subsublen+2,
+                    ett_isis_lsp_clv_flex_algo_incany_ag, NULL, "Include-Any Admin Group Sub-TLV");
+                for (int j = 0; j < subsublen; j += 4) {
+                    proto_tree_add_bits_item(ag_tree, hf_isis_lsp_clv_flex_algo_incany_ag,
+                        tvb, (offset + j * 4) * 8, 32, ENC_BIG_ENDIAN);
+                }
+                break;
+            case FAD_INCLUDE_ALL_AG:
+                ag_tree = proto_tree_add_subtree_format(rt_tree, tvb, offset-2, subsublen+2,
+                    ett_isis_lsp_clv_flex_algo_incall_ag, NULL, "Include-All Admin Group Sub-TLV");
+                for (int j = 0; j < subsublen; j += 4) {
+                    proto_tree_add_bits_item(ag_tree, hf_isis_lsp_clv_flex_algo_incall_ag,
+                        tvb, (offset + j * 4) * 8, 32, ENC_BIG_ENDIAN);
+                }
+                break;
+            case FAD_FLAGS:
+                proto_tree_add_bitmask(rt_tree, tvb, offset, hf_isis_lsp_clv_flex_algo_flags,
+                    ett_isis_lsp_clv_flex_algo_flags, flex_algo_flags, FALSE);
+                break;
+            default:
+                break;
+            }
+            sublen -= subsublen;
+            offset += subsublen;
+        }
         return(0);
 
     default:
@@ -5664,13 +5725,43 @@ proto_register_isis_lsp(void)
         },
         { &hf_isis_lsp_clv_flex_algo_calc_type,
           { "Calc Type", "isis.lsp.flex_algo_calc_type",
-            FT_UINT8, BASE_DEC, VALS(isis_lsp_flex_algo_calc_type), 0x0,
+            FT_UINT8, BASE_DEC, VALS(isis_igp_alg_vals), 0x0,
             NULL, HFILL }
         },
         { &hf_isis_lsp_clv_flex_algo_priority,
           { "Priority", "isis.lsp.flex_algo_priority",
             FT_UINT8, BASE_DEC, NULL, 0x0,
             NULL, HFILL }
+        },
+
+        { &hf_isis_lsp_clv_flex_algo_exc_ag,
+          { "Hex", "isis.lsp.flex_algo_exc_ag",
+            FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL }
+        },
+        { &hf_isis_lsp_clv_flex_algo_incany_ag,
+          { "Hex", "isis.lsp.flex_algo_incany_ag",
+            FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL }
+        },
+        { &hf_isis_lsp_clv_flex_algo_incall_ag,
+          { "Hex", "isis.lsp.flex_algo_incall_ag",
+            FT_UINT32, BASE_HEX, NULL, 0x0, NULL, HFILL }
+        },
+        { &hf_isis_lsp_clv_flex_algo_flags,
+          { "Hex", "isis.lsp.flex_algo_flags",
+            FT_UINT8, BASE_HEX, NULL, 0x0, NULL, HFILL }
+        },
+        { &hf_isis_lsp_clv_flex_algo_flags_m,
+          { "M-flag", "isis.lsp.flex_algo_flags.m",
+            FT_BOOLEAN, 8, TFS(&tfs_set_notset), 0x80, NULL, HFILL }
+        },
+
+        { &hf_isis_lsp_ext_ip_reachability_flex_algo_prefix_metric_flexalgo,
+          { "Flex-Algorithm", "isis.lsp.ext_ip_reachability.flex_algo_prefix_metric.flexalgo",
+            FT_UINT8, BASE_DEC, NULL, 0x0, NULL, HFILL }
+        },
+        { &hf_isis_lsp_ext_ip_reachability_flex_algo_prefix_metric_metric,
+          { "Metric", "isis.lsp.ext_ip_reachability.flex_algo_prefix_metric.metric",
+            FT_UINT32, BASE_DEC, NULL, 0x0, NULL, HFILL }
         },
 
         { &hf_isis_lsp_area_address,
@@ -5889,6 +5980,10 @@ proto_register_isis_lsp(void)
         &ett_isis_lsp_clv_srv6_cap,
         &ett_isis_lsp_clv_srv6_cap_flags,
         &ett_isis_lsp_clv_flex_algo_definition,
+        &ett_isis_lsp_clv_flex_algo_exc_ag,
+        &ett_isis_lsp_clv_flex_algo_incany_ag,
+        &ett_isis_lsp_clv_flex_algo_incall_ag,
+        &ett_isis_lsp_clv_flex_algo_flags,
         &ett_isis_lsp_clv_ipv6_te_rtrid,
         &ett_isis_lsp_clv_srv6_endx_sid_flags,
         &ett_isis_lsp_clv_srv6_locator,

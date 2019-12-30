@@ -98,6 +98,7 @@
 #define SEGMENT_ROUTING_LB       22
 #define NODE_MSD                 23            /* rfc8491 */
 #define SRV6_CAP                 25
+#define FLEX_ALGO_DEFINITION     26
 
 
 /*Sub-TLVs under Group Address TLV*/
@@ -129,6 +130,15 @@
 #define IGP_MSD_TYPE_T_INSERT       43
 #define IGP_MSD_TYPE_T_ENCAP        44
 #define IGP_MSD_TYPE_END_D          45
+
+/* Flex-Algo Metric-Type */
+#define FLEX_ALGO_METRIC_TYPE_IGP_METRIC          0
+#define FLEX_ALGO_METRIC_TYPE_MIN_UNID_LINK_DELAY 1
+#define FLEX_ALGO_METRIC_TYPE_TE_DEFAULT_METRIC   2
+
+/* Flex-Algo Calc-Type */
+#define FLEX_ALGO_CALC_TYPE_SPF     0
+#define FLEX_ALGO_CALC_TYPE_SSPF    1
 
 /* Prefix Attribute Flags Sub-TLV (rfc7794)*/
 #define ISIS_LSP_PFX_ATTR_FLAG_X    0x80
@@ -401,6 +411,10 @@ static int hf_isis_lsp_clv_srv6_cap_flags_o = -1;
 static int hf_isis_lsp_clv_srv6_cap_flags_unused = -1;
 static int hf_isis_lsp_clv_igp_msd_type = -1;
 static int hf_isis_lsp_clv_igp_msd_value = -1;
+static int hf_isis_lsp_clv_flex_algo_num = -1;
+static int hf_isis_lsp_clv_flex_algo_metric_type = -1;
+static int hf_isis_lsp_clv_flex_algo_calc_type = -1;
+static int hf_isis_lsp_clv_flex_algo_priority = -1;
 static int hf_isis_lsp_clv_srv6_endx_sid_system_id = -1;
 static int hf_isis_lsp_clv_srv6_endx_sid_flags = -1;
 static int hf_isis_lsp_clv_srv6_endx_sid_flags_b = -1;
@@ -508,6 +522,7 @@ static gint ett_isis_lsp_clv_sr_lb = -1;
 static gint ett_isis_lsp_clv_node_msd = -1;
 static gint ett_isis_lsp_clv_srv6_cap = -1;
 static gint ett_isis_lsp_clv_srv6_cap_flags = -1;
+static gint ett_isis_lsp_clv_flex_algo_definition = -1;
 static gint ett_isis_lsp_clv_ipv6_te_rtrid = -1;
 static gint ett_isis_lsp_clv_trill_version = -1;
 static gint ett_isis_lsp_clv_trees = -1;
@@ -654,6 +669,19 @@ static const value_string isis_lsp_igp_msd_types[] = {
     { IGP_MSD_TYPE_T_INSERT,        "Maximum T.Insert" },
     { IGP_MSD_TYPE_T_ENCAP,         "Maximum T.Encaps" },
     { IGP_MSD_TYPE_END_D,           "Maximum End D" },
+    { 0, NULL }
+};
+
+static const value_string isis_lsp_flex_algo_metric_type[] = {
+    { FLEX_ALGO_METRIC_TYPE_IGP_METRIC,          "IGP Metric" },
+    { FLEX_ALGO_METRIC_TYPE_MIN_UNID_LINK_DELAY, "Min Unidirectional Link Delay as defined in [RFC7810]" },
+    { FLEX_ALGO_METRIC_TYPE_TE_DEFAULT_METRIC,   "TE default metric as defined in [RFC5305]" },
+    { 0, NULL }
+};
+
+static const value_string isis_lsp_flex_algo_calc_type[] = {
+    { FLEX_ALGO_CALC_TYPE_SPF,      "Shortest Path First (SPF)" },
+    { FLEX_ALGO_CALC_TYPE_SSPF,     "Strict Shortest Path First (SPF)" },
     { 0, NULL }
 };
 
@@ -1711,6 +1739,19 @@ dissect_isis_trill_clv(tvbuff_t *tvb, packet_info* pinfo _U_,
             sublen -= 2;
             offset += 2;
         }
+        return(0);
+
+    case FLEX_ALGO_DEFINITION:
+        rt_tree = proto_tree_add_subtree_format(tree, tvb, offset-2, sublen+2,
+                                                ett_isis_lsp_clv_flex_algo_definition,
+                                                NULL, "Flexible Algorithm Definition (t=%u, l=%u)",
+                                                subtype, sublen);
+        proto_tree_add_item(rt_tree, hf_isis_lsp_clv_flex_algo_num, tvb, offset, 1, ENC_NA);
+        proto_tree_add_item(rt_tree, hf_isis_lsp_clv_flex_algo_metric_type, tvb, offset+1, 1, ENC_NA);
+        proto_tree_add_item(rt_tree, hf_isis_lsp_clv_flex_algo_calc_type, tvb, offset+2, 1, ENC_NA);
+        proto_tree_add_item(rt_tree, hf_isis_lsp_clv_flex_algo_priority, tvb, offset+3, 1, ENC_NA);
+        sublen -= 4;
+        offset += 4;
         return(0);
 
     default:
@@ -5611,6 +5652,27 @@ proto_register_isis_lsp(void)
             NULL, HFILL }
         },
 
+        { &hf_isis_lsp_clv_flex_algo_num,
+          { "Flex-Algorithm number", "isis.lsp.flex_algo_num",
+            FT_UINT8, BASE_DEC, NULL, 0x0,
+            NULL, HFILL }
+        },
+        { &hf_isis_lsp_clv_flex_algo_metric_type,
+          { "Metric Type", "isis.lsp.flex_algo_metric_type",
+            FT_UINT8, BASE_DEC, VALS(isis_lsp_flex_algo_metric_type), 0x0,
+            NULL, HFILL }
+        },
+        { &hf_isis_lsp_clv_flex_algo_calc_type,
+          { "Calc Type", "isis.lsp.flex_algo_calc_type",
+            FT_UINT8, BASE_DEC, VALS(isis_lsp_flex_algo_calc_type), 0x0,
+            NULL, HFILL }
+        },
+        { &hf_isis_lsp_clv_flex_algo_priority,
+          { "Priority", "isis.lsp.flex_algo_priority",
+            FT_UINT8, BASE_DEC, NULL, 0x0,
+            NULL, HFILL }
+        },
+
         { &hf_isis_lsp_area_address,
             { "Area address", "isis.lsp.area_address",
               FT_BYTES, BASE_NONE, NULL, 0x0,
@@ -5826,6 +5888,7 @@ proto_register_isis_lsp(void)
         &ett_isis_lsp_clv_node_msd,
         &ett_isis_lsp_clv_srv6_cap,
         &ett_isis_lsp_clv_srv6_cap_flags,
+        &ett_isis_lsp_clv_flex_algo_definition,
         &ett_isis_lsp_clv_ipv6_te_rtrid,
         &ett_isis_lsp_clv_srv6_endx_sid_flags,
         &ett_isis_lsp_clv_srv6_locator,
